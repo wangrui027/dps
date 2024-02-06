@@ -1,0 +1,327 @@
+#!/bin/bash
+
+arg1=$1
+
+# 检测命令是否存在
+if [ "$(command -v jq)" == "" ]; then
+  echo
+  echo "请提前安装 jq: https://jqlang.github.io/jq/"
+  echo
+  echo "程序退出"
+  echo
+  exit 1
+fi
+if [ "$(command -v docker)" == "" ]; then
+  echo
+  echo "请提前安装 docker: https://docs.docker.com/engine/install/"
+  echo
+  echo "程序退出"
+  echo
+  exit 1
+fi
+
+# 打印欢迎信息
+function welcome() {
+  echo
+  echo '================ 本程序负责批量或选定 docker 容器导出其启动命令 Powered by 王睿 ================'
+  echo '支持导出的启动参数如下：'
+  echo '[-d, -P, -p, -v, -e, -m, -u, -w, --name, --restart, --entrypoint, --privileged]'
+  echo '======================'
+  echo '选定导出：dps'
+  echo '批量导出：dps -a'
+  echo '======================'
+  echo 'ref: https://docs.docker.com/engine/reference/commandline/container_run/'
+  echo '================================================================================================'
+}
+
+colume1="INDEX"
+colume2="CONTAINER ID"
+colume3="NAMES"
+colume4="IMAGE"
+splitStr="   "
+
+indexLenMax=$(expr length "$colume1")
+idLenMax=12
+
+ids=()
+i=0;
+for id in $(docker ps -a --format '{{.ID}}')
+do
+  ids[$i]=$id
+  ((i++))
+  length=$(expr length "$id")
+done
+
+# 容器名长度
+nameLenMax=$(expr length "$colume3")
+names=()
+i=0;
+for name in $(docker ps -a --format '{{.Names}}')
+do
+  names[$i]=$name
+  ((i++))
+  length=$(expr length "$name")
+  if [ $length -gt $nameLenMax ]; then
+  nameLenMax=$length
+  fi
+done
+
+# 镜像名长度
+imageLenMax=$(expr length "$colume4")
+images=()
+i=0;
+for image in $(docker ps -a --format '{{.Image}}')
+do
+  images[$i]=$image
+  ((i++))
+  length=$(expr length "$image")
+  if [ $length -gt $imageLenMax ]; then
+  imageLenMax=$length
+  fi
+done
+
+function printList() {
+  # 拼接表头
+  text="${colume1}${splitStr}${colume2}${splitStr}${colume3}"
+  length=$(expr length "$colume3")
+  for ((j=0; j < nameLenMax-length; j++))
+  do
+    text="${text} "
+  done
+  text="${text}${splitStr}${colume4}"
+  echo "$text"
+  
+  # 拼接每一行
+  for ((j=0; j<i; j++))
+  do
+    id=${ids[$j]}
+    name=${names[$j]}
+    image=${images[$j]}
+    
+    index=$((j+1))
+    length=$(expr length "$index")
+  
+    text="${index}"
+    for ((k=0; k<indexLenMax-length; k++))
+    do
+      text="${text} "
+    done
+    text="${text}${splitStr}${id}${splitStr}${name}"
+    
+    length=$(expr length "$name")
+    for ((k=0; k<nameLenMax-length; k++))
+    do
+      text="${text} "
+    done
+    
+    text="${text}${splitStr}${image}"
+    echo "${text}"
+  done
+}
+
+function printLine() {
+  index=$1
+  exist=0
+  for ((j=0; j<i; j++))
+  do
+  if [ "${index}" == "$((j+1))" ]; then
+    exist=1
+    break
+  fi
+  done
+  
+  if [ ${exist} == 0 ]; then
+  echo
+  echo "容器序号不合法"
+  echo
+  return
+  fi
+  
+  index=$((index-1))
+  id=${ids[$index]}
+  name=${names[$index]}
+  
+  containerInspect="$(docker container inspect $id | jq '.[0]')"
+  containerConfig="$(echo "$containerInspect" | jq '.Config')"
+  containerHostConfig="$(echo "$containerInspect" | jq '.HostConfig')"
+  
+  imageInspect="$(docker image inspect ${images[$index]} | jq '.[0]')"
+  imageConfig="$(echo $imageInspect | jq '.Config')"
+  
+  # 拼接开始
+  command="docker run -d \\\\"
+  if [ "$(echo "$containerHostConfig" | jq '.PublishAllPorts')" == "true" ]; then
+    command="docker run -dP \\\\"
+  fi
+
+  # 拼接容器名称
+  command="${command}\n --name ${name} \\\\"
+  
+  # 拼接重启策略参数
+  restartPolicy="$(echo $containerHostConfig | jq '.RestartPolicy')"
+  restartType="$(echo $restartPolicy | jq -r .Name)"
+  if [ "$restartType" != "no" ]; then
+    command="${command}\n --restart $(echo $restartPolicy | jq -r .Name)"
+    maximumRetryCount="$(echo $restartPolicy | jq -r .MaximumRetryCount)"
+    if [ "$maximumRetryCount" != "0" ]; then
+      command="${command}:$(echo $restartPolicy | jq .MaximumRetryCount)"
+    fi
+    command="${command} \\\\"
+  fi
+  
+  # 拼接挂载参数
+  volumes="$(echo $containerHostConfig | jq '.Binds')"
+  if [ "$volumes" != "null" ]; then
+    length=$(echo "$volumes" | jq '. | length')
+  for ((i=0; i<length; i++))
+  do
+    command="${command}\n -v $(echo "$volumes" | jq '.['$i']') \\\\"
+  done
+  fi
+  
+  # 拼接环境变量参数
+  imageEnvs="$(echo $imageConfig | jq '.Env')"
+  containerEnvs="$(echo $containerConfig | jq '.Env')"
+  if [ "$containerEnvs" != "null" ]; then
+    imageEnvArr=()
+    length=$(echo "$imageEnvs" | jq '. | length')
+  for ((i=0; i<length; i++))
+  do
+    imageEnvArr[$i]="$(echo "$imageEnvs" | jq '.['$i']')"
+  done
+    length=$(echo "$containerEnvs" | jq '. | length')
+  for ((i=0; i<length; i++))
+  do
+    env="$(echo "$containerEnvs" | jq '.['$i']')"
+    exist=0
+    for ((j=0; j<${#imageEnvArr[@]}; j++))
+    do
+      imageEnv=${imageEnvArr[j]}
+      if [ "$imageEnv" == "$env" ]; then
+      exist=1
+      break
+    fi
+    done
+    if [ ${exist} == 0 ]; then
+      command="${command}\n -e ${env} \\\\"
+    fi
+  done
+  fi
+  
+  # 拼接端口参数
+  portBindings="$(echo "$containerHostConfig" | jq '.PortBindings')"
+  keys="$(echo "$portBindings" | jq '. | keys')"
+  if [ "$keys" != "[]" ]; then
+  length=$(echo $keys | jq '. | length')
+  for ((i=0; i<length;i++))
+    do
+      port="$(echo $keys | jq -r '.['$i']')"
+      key=".\"${port}\""
+      hostPort="$(echo $portBindings | jq ${key} | jq -r '.[0].HostPort')"
+      command="${command}\n -p ${hostPort}:${port} \\\\"
+    done
+  fi
+  
+  # 拼接用户参数
+  user="$(echo $containerConfig | jq -r '.User')"
+  if [ "$user" != "" ]; then
+    command="${command}\n -u ${user} \\\\"
+  fi
+
+  # 拼接内存参数
+  memory="$(echo "$containerHostConfig" | jq '.Memory')"
+  if [ $memory -gt 0 ]; then
+    kbBytes=1024
+    mbBytes=$(($kbBytes * 1024))
+    gbBytes=$(($mbBytes * 1024))
+    if [ $memory -gt $gbBytes ] && [ $(($memory % $gbBytes)) == 0 ]; then
+      memory="$(($memory / $gbBytes))g"
+    elif [ $memory -gt $mbBytes ] && [ $(($memory % $mbBytes)) == 0 ]; then
+      memory="$(($memory / $mbBytes))m"
+    elif [ $memory -gt $kbBytes ] && [ $(($memory % $kbBytes)) == 0 ]; then
+      memory="$(($memory / $kbBytes))k"
+    fi
+    command="${command}\n -m ${memory} \\\\"
+  fi
+
+  # 拼接工作目录参数
+  dir="$(echo $containerConfig | jq -r '.WorkingDir')"
+  if [ "$dir" != "" ]; then
+    command="${command}\n -w ${dir} \\\\"
+  fi
+
+  # 拼接特权参数
+  if [ "$(echo $containerHostConfig | jq -r .Privileged)" == "true" ] ; then
+    command="${command}\n --privileged \\\\"
+  fi
+
+  # 拼接入口点参数
+  imageEntrypoints="$(echo $imageConfig | jq '.Entrypoint')"
+  containerEntrypoints="$(echo $containerConfig | jq '.Entrypoint')"
+  if [ "$containerEntrypoints" != "$imageEntrypoints" ]; then
+    command="${command}\n --entrypoint $(echo $containerEntrypoints | jq -r '.[0]') \\\\"
+  fi
+
+  # 拼接容器镜像
+  image="${images[$index]}"
+  command="${command}\n ${image}"
+  
+  # 拼接 cmd 参数
+  cmd=""
+  imageCmd="$(echo "$imageConfig" | jq '.Cmd')"
+  containerCmd="$(echo "$containerConfig" | jq '.Cmd')"
+  if [ "$imageCmd" != "$containerCmd" ]; then
+    length="$(echo "$containerCmd" | jq '. | length')"
+    for((i=0; i<length; i++))
+    do
+      cmd="${cmd} $(echo $containerCmd | jq -r '.['$i']')"
+    done
+    command="${command} \\\\\n${cmd}"
+  fi
+
+  echo
+  echo -e "$command"
+  echo
+
+}
+
+if [ "$arg1" == "-h" ] || [ "$arg1" == "--help" ]; then
+  echo
+  echo "dps       列出所有容器，选定容器查看启动命令"
+  echo
+  echo "dps -a    导出所有容器启动命令到当前目录"
+  echo
+elif [ "$arg1" == "-a" ] || [ "$arg1" == "--all" ]; then
+  echo
+  if [ $i == 0 ]; then
+    echo
+    echo "当前没有容器实例"
+    echo
+  else
+    file="dps_$(date +%s%3N).txt"
+    for ((j=1; j<=i; j++))
+    do
+      text=$(echo "$(printLine $j)" | sed '/^\s*$/d')
+      echo -e "$text\n" >> $file
+    done
+    echo "所用容器启动命令已保存至 ${file} 文件"
+  fi
+  echo
+elif [ "$arg1" == "" ];then
+  if [ $i == 0 ]; then
+    echo
+    echo "当前没有容器实例"
+    echo
+    exit 0
+  fi
+  welcome
+  printList
+  echo
+  echo -n "请输入导出启动命令的的容器序号："
+  read index
+  printLine $index
+else
+  echo
+  echo "参数有误"
+  echo
+fi
