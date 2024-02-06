@@ -12,6 +12,12 @@ chmod +x /usr/local/bin/dps
 dps
 ```
 
+程序依赖 `jq` 及 `docker`，请提前安装
+
+jq: [https://jqlang.github.io/jq/](https://jqlang.github.io/jq/)
+
+docker: [https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/)
+
 ## 使用
 
 选定导出：
