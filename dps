@@ -32,6 +32,7 @@ function welcome() {
   echo '======================'
   echo 'ref: https://docs.docker.com/engine/reference/commandline/container_run/'
   echo '================================================================================================'
+  echo
 }
 
 colume1="INDEX"
@@ -122,19 +123,28 @@ function printList() {
 function printLine() {
   index=$1
   exist=0
+
   for ((j=0; j<i; j++))
   do
-  if [ "${index}" == "$((j+1))" ]; then
-    exist=1
-    break
-  fi
+    if [ "${index}" == "$((j+1))" ]; then
+      exist=1
+      break
+    fi
+  done
+
+  for ((j=0; j<i; j++))
+  do
+    if [ "${index}" == "${names[j]}" ]; then
+      exist=1
+      break
+    fi
   done
   
   if [ ${exist} == 0 ]; then
-  echo
-  echo "容器序号不合法"
-  echo
-  return
+    echo
+    echo "容器序号或容器名不合法"
+    echo
+    exit 1
   fi
   
   index=$((index-1))
@@ -317,7 +327,7 @@ elif [ "$arg1" == "" ];then
   welcome
   printList
   echo
-  echo -n "请输入导出启动命令的的容器序号："
+  echo -n "请输入导出启动命令的的容器序号或容器名称："
   read index
   printLine $index
 else
