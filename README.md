@@ -17,7 +17,7 @@ dps
 选定导出：
 
 ```bash
-root@vm-centos7 ~]# dps
+[root@vm-centos7 ~]# dps
 
 ================ 本程序负责批量或选定 docker 容器导出其启动命令 Powered by 王睿 ================
 支持导出的启动参数如下：
@@ -28,10 +28,11 @@ root@vm-centos7 ~]# dps
 ======================
 ref: https://docs.docker.com/engine/reference/commandline/container_run/
 ================================================================================================
+
 INDEX   CONTAINER ID   NAMES   IMAGE
 1       a3b3845260e7   nginx   nginx
 
-请输入导出启动命令的的容器序号：1 
+请输入导出启动命令的的容器序号或容器名称：1
 
 docker run -dP \
  --name nginx \
@@ -48,5 +49,15 @@ docker run -dP \
 ```bash
 [root@vm-centos7 ~]# dps -a
 
-所用容器启动命令已保存至 dps_1707190669982.txt 文件
+所用容器启动命令已保存至 dps_1707192678213.txt 文件
+
+[root@vm-centos7 ~]# cat dps_1707192678213.txt 
+docker run -dP \
+ --name nginx \
+ --restart on-failure:2 \
+ -v "/opt/wangrui/:/opt/wangrui" \
+ -e "name=wangrui" \
+ -p 8081:80/tcp \
+ -w /opt \
+ nginx
 ```
